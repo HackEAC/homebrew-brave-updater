@@ -1,0 +1,34 @@
+name: Validate Formula
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  validate:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Skip when no formula is present
+        shell: bash
+        run: |
+          if [ ! -f Formula/brave-updater.rb ]; then
+            echo "No formula yet; skipping validation."
+            exit 0
+          fi
+
+      - name: Audit formula
+        if: ${{ hashFiles('Formula/brave-updater.rb') != '' }}
+        run: brew audit --strict --formula ./Formula/brave-updater.rb
+
+      - name: Install formula
+        if: ${{ hashFiles('Formula/brave-updater.rb') != '' }}
+        run: brew install --formula ./Formula/brave-updater.rb
+
+      - name: Test formula
+        if: ${{ hashFiles('Formula/brave-updater.rb') != '' }}
+        run: brew test brave-updater

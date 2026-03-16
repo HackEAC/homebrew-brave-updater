@@ -1,0 +1,75 @@
+name: Sync Formula
+
+on:
+  workflow_dispatch:
+  repository_dispatch:
+    types: [sync-from-release]
+  schedule:
+    - cron: "25 */6 * * *"
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Download latest formula asset
+        id: sync
+        shell: python
+        run: |
+          import json
+          import os
+          import pathlib
+          import sys
+          import urllib.request
+          from urllib.error import HTTPError
+
+          api_url = "https://api.github.com/repos/HackEAC/braver-tz/releases/latest"
+          request = urllib.request.Request(api_url, headers={"User-Agent": "homebrew-brave-updater-sync"})
+          try:
+              with urllib.request.urlopen(request, timeout=30) as response:
+                  release = json.load(response)
+          except HTTPError as exc:
+              if exc.code == 404:
+                  print("No releases found yet.")
+                  sys.exit(0)
+              raise
+
+          tag = release.get("tag_name", "")
+          asset = next((item for item in release.get("assets", []) if item.get("name") == "brave-updater.rb"), None)
+          if asset is None:
+              print("No rendered Homebrew formula found on the latest release.")
+              sys.exit(0)
+
+          formula_dir = pathlib.Path("Formula")
+          formula_dir.mkdir(parents=True, exist_ok=True)
+          destination = formula_dir / "brave-updater.rb"
+
+          download_request = urllib.request.Request(
+              asset["browser_download_url"],
+              headers={"User-Agent": "homebrew-brave-updater-sync"},
+          )
+          with urllib.request.urlopen(download_request, timeout=60) as response:
+              destination.write_bytes(response.read())
+
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as handle:
+              handle.write("tag={}\n".format(tag))
+
+      - name: Commit and push changes
+        shell: bash
+        env:
+          SYNC_TAG: ${{ steps.sync.outputs.tag }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Formula/brave-updater.rb
+          if git diff --cached --quiet; then
+            echo "No formula changes to commit."
+            exit 0
+          fi
+          git commit -m "chore: sync formula from ${SYNC_TAG:-latest-release}"
+          git push
