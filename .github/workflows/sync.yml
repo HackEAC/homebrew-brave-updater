@@ -60,6 +60,7 @@ jobs:
               handle.write("tag={}\n".format(tag))
 
       - name: Commit and push changes
+        if: ${{ steps.sync.outputs.tag != '' }}
         shell: bash
         env:
           SYNC_TAG: ${{ steps.sync.outputs.tag }}
